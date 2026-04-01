@@ -1,4 +1,4 @@
-# Responsibility: Map UI state to domain JobDefinition and interpret job results for display.
+# Responsibility: Thin UI mapping/presentation helpers that convert form state to JobDefinition and format user-facing text; this is not a heavy Qt MVVM layer.
 
 from __future__ import annotations
 
