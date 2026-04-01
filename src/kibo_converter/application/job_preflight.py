@@ -22,16 +22,18 @@ def run_job_preflight(job_definition: JobDefinition) -> None:
 
     input_directory = job_definition.selection_rules.input_directory_path
     if not input_directory.is_dir():
-        raise JobPreflightError(f"Input folder does not exist or is not a directory: {input_directory}")
+        raise JobPreflightError(
+            f"入力フォルダが存在しないか、フォルダではありません: {input_directory}"
+        )
 
     output_directory = job_definition.output_rules.output_directory_path
     try:
         output_directory.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise JobPreflightError(f"Cannot create output folder: {output_directory}") from exc
+        raise JobPreflightError(f"出力フォルダを作成できません: {output_directory}") from exc
 
     if not is_output_directory_writable(output_directory):
-        raise JobPreflightError(f"Output folder is not writable: {output_directory}")
+        raise JobPreflightError(f"出力フォルダに書き込みできません: {output_directory}")
 
     if not _job_requires_heif_support(job_definition):
         return
@@ -39,7 +41,9 @@ def run_job_preflight(job_definition: JobDefinition) -> None:
     try:
         ensure_heif_support_registered()
     except HeifSupportInitializationError as exc:
-        raise JobPreflightError("HEIC/HEIF support is not available on this system.") from exc
+        raise JobPreflightError(
+            "このPCでは HEIC/HEIF を読むための環境が見つかりません（pillow-heif / libheif など）。"
+        ) from exc
 
 
 def is_output_directory_writable(output_directory_path: Path) -> bool:

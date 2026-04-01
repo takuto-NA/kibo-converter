@@ -1,37 +1,53 @@
-# Manual test checklist
+# 手動テストチェックリスト
 
-## Environment
+## 環境
 
-- Windows 10 or later
+- Windows 10 以降
 - Python 3.11+
-- Dependencies installed from `pyproject.toml`
+- `pyproject.toml` から依存関係をインストール済み
 
-## HEIC to PNG
+## HEIC から PNG
 
-- [ ] Copy multiple iPhone `HEIC` files into an input folder
-- [ ] Set output format to `PNG`
-- [ ] Run conversion and verify outputs exist
-- [ ] Open a few outputs in an image viewer and confirm orientation looks correct
+- [ ] 複数の iPhone `HEIC` を入力フォルダにコピーする
+- [ ] 出力形式を `PNG` にする
+- [ ] 変換を実行し、出力ができることを確認する
+- [ ] いくつかの出力を画像ビューアで開き、向きが自然か確認する
 
-## Progress and cancellation
+## macOS 由来フォルダ（`._*` など）
 
-- [ ] Run a folder with 100+ images
-- [ ] Confirm progress updates while running
-- [ ] Press `Cancel` mid-run and confirm the UI remains responsive
-- [ ] Confirm the log output explains skipped files after cancellation
+- [ ] `._IMG_xxxx.HEIC` のようなファイルだけが混ざっているフォルダで実行する
+- [ ] **失敗として数えられず**、ログ／要約に「スキャン時に除外」などの説明が出ることを確認する
+- [ ] 通常の `IMG_xxxx.HEIC` と混在していても、本物の HEIC のみ変換されることを確認する
 
-## Collision policies
+## 進捗とキャンセル
 
-- [ ] Run twice with `Overwrite existing output` and confirm files update
-- [ ] Run with `Keep both` and confirm no silent overwrite when content differs
-- [ ] Run with `Keep both` when outputs already match and confirm duplicate skip behavior
+- [ ] 画像が 100 枚以上あるフォルダで実行する
+- [ ] 実行中に進捗が更新されることを確認する
+- [ ] 途中で「キャンセル」を押し、UI が応答し続けることを確認する
+- [ ] ログにキャンセル後の扱い（未処理など）が分かる表現で出ることを確認する
 
-## Job file persistence
+## 重複時の扱い
 
-- [ ] Save a job JSON, restart the app, load the job JSON, and confirm fields restore
-- [ ] Manually corrupt the JSON and confirm load fails with a clear error message
+- [ ] 「上書き」を選び、同じ内容で 2 回実行してファイルが更新されることを確認する
+- [ ] 「別名で保存」を選び、内容が違うときに静かに上書きされないことを確認する
+- [ ] 「別名で保存」で、すでに同じ内容の出力があるときにスキップされる動きを確認する
 
-## Failure cases
+## 上書きの確認ダイアログ
 
-- [ ] Include a corrupted image file and confirm the job continues
-- [ ] Point output to a read-only location and confirm a clear preflight failure
+- [ ] 出力フォルダに既にファイルやフォルダがある状態で「上書き」を選び、**続行前に確認**が出ることを確認する
+- [ ] キャンセルしたときに変換が開始されないことを確認する
+
+## ジョブ設定ファイル
+
+- [ ] 設定を JSON として保存し、アプリを再起動して読み込み、項目が戻ることを確認する
+- [ ] JSON を手で壊し、読み込み時に分かりやすいエラーになることを確認する
+
+## 失敗系
+
+- [ ] 壊れた画像ファイルを混ぜ、**他のファイルの変換が続く**ことを確認する
+- [ ] 出力先を読み取り専用にできない場所に指定し、**開始前に**失敗することを確認する
+
+## 初見ユーザー（説明なし）
+
+- [ ] 初めて触る人に、**画面の説明だけ**で入力フォルダ・出力フォルダ・実行ボタンが分かるか見守る
+- [ ] 実行中に、設定の変更や設定の保存／読み込みができない（または明確に案内される）ことを確認する

@@ -21,9 +21,10 @@ class JobRunPanelWidget(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._status_label = QLabel("Ready to start")
+        self._status_label = QLabel("準備完了（設定を終えたら「変換を実行」）")
         self._helper_label = QLabel(
-            "Press Run after you finish the settings above. Progress, errors, and cancellations appear here."
+            "上の設定が終わったら「変換を実行」を押してください。"
+            "進捗・結果・注意が必要な件はこの欄に表示されます。"
         )
         self._helper_label.setWordWrap(True)
         self._progress_bar = QProgressBar()
@@ -33,7 +34,7 @@ class JobRunPanelWidget(QWidget):
         self._log_view = QPlainTextEdit()
         self._log_view.setReadOnly(True)
 
-        self._cancel_button = QPushButton("Cancel")
+        self._cancel_button = QPushButton("キャンセル")
         self._cancel_button.setEnabled(False)
         self._cancel_button.clicked.connect(self.cancel_requested.emit)
 
@@ -53,10 +54,14 @@ class JobRunPanelWidget(QWidget):
         """Enable or disable controls appropriate for running state."""
         self._cancel_button.setEnabled(is_running)
         if is_running:
-            self._helper_label.setText("Run in progress. You can cancel safely; completed files stay written.")
+            self._helper_label.setText(
+                "実行中です。キャンセルは安全に途中で止められます（すでに書き終えたファイルは残ります）。"
+                "この間は上の設定は変更できません。"
+            )
         else:
             self._helper_label.setText(
-                "Press Run after you finish the settings above. Progress, errors, and cancellations appear here."
+                "上の設定が終わったら「変換を実行」を押してください。"
+                "進捗・結果・注意が必要な件はこの欄に表示されます。"
             )
 
     def set_status_text(self, text: str) -> None:

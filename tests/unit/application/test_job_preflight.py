@@ -89,7 +89,7 @@ def test_preflight_requires_heif_when_heic_is_in_scope(
         _failing_heif_registration,
     )
 
-    with pytest.raises(JobPreflightError, match="HEIC/HEIF support"):
+    with pytest.raises(JobPreflightError, match="HEIC"):
         run_job_preflight(job_definition)
 
 
@@ -110,5 +110,5 @@ def test_preflight_rejects_unwritable_output_directory(
 
     monkeypatch.setattr(job_preflight, "is_output_directory_writable", lambda path: False)
 
-    with pytest.raises(JobPreflightError, match="writable"):
+    with pytest.raises(JobPreflightError, match="書き込み"):
         run_job_preflight(job_definition)

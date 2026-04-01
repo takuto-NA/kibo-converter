@@ -19,7 +19,7 @@ class JobPersistenceError(Exception):
 
 def _require_dict_payload(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
-        raise JobPersistenceError("Job file root must be a JSON object.")
+        raise JobPersistenceError("設定ファイルの先頭は JSON のオブジェクトである必要があります。")
     return payload
 
 
@@ -60,7 +60,7 @@ def _parse_extensions_list(value: Any) -> frozenset[str]:
             extension = f".{extension}"
         normalized.add(extension)
     if not normalized:
-        raise JobPersistenceError("At least one extension is required.")
+        raise JobPersistenceError("拡張子は1つ以上必要です。")
     return frozenset(normalized)
 
 
@@ -93,13 +93,13 @@ def job_definition_from_dict(payload: dict[str, Any]) -> JobDefinition:
     schema_version = _require_int("schema_version", payload.get("schema_version"))
     if schema_version != JOB_SCHEMA_VERSION_CURRENT:
         raise JobPersistenceError(
-            f"Unsupported schema_version: {schema_version}. "
-            f"This app supports only version {JOB_SCHEMA_VERSION_CURRENT}."
+            f"schema_version {schema_version} はこのアプリでは扱えません。"
+            f"対応しているのは {JOB_SCHEMA_VERSION_CURRENT} のみです。"
         )
 
     selection_payload = payload.get("selection_rules")
     if not isinstance(selection_payload, dict):
-        raise JobPersistenceError("Missing or invalid 'selection_rules' object.")
+        raise JobPersistenceError("selection_rules が無いか、形式が正しくありません。")
 
     input_directory_path = Path(
         _require_non_empty_path_text("input_directory_path", selection_payload.get("input_directory_path"))
@@ -114,11 +114,11 @@ def job_definition_from_dict(payload: dict[str, Any]) -> JobDefinition:
     try:
         output_format = ImageOutputFormat(output_format_raw)
     except ValueError as exc:
-        raise JobPersistenceError(f"Invalid output_format: {output_format_raw}.") from exc
+        raise JobPersistenceError(f"output_format の値が不正です: {output_format_raw}") from exc
 
     resize_payload = payload.get("resize_options")
     if not isinstance(resize_payload, dict):
-        raise JobPersistenceError("Missing or invalid 'resize_options' object.")
+        raise JobPersistenceError("resize_options が無いか、形式が正しくありません。")
 
     max_edge_value = resize_payload.get("max_edge_pixels")
     max_edge_pixels: int | None
@@ -129,7 +129,7 @@ def job_definition_from_dict(payload: dict[str, Any]) -> JobDefinition:
 
     output_payload = payload.get("output_rules")
     if not isinstance(output_payload, dict):
-        raise JobPersistenceError("Missing or invalid 'output_rules' object.")
+        raise JobPersistenceError("output_rules が無いか、形式が正しくありません。")
 
     output_directory_path = Path(
         _require_non_empty_path_text("output_directory_path", output_payload.get("output_directory_path"))
@@ -138,7 +138,7 @@ def job_definition_from_dict(payload: dict[str, Any]) -> JobDefinition:
     try:
         collision_policy = CollisionPolicy(collision_raw)
     except ValueError as exc:
-        raise JobPersistenceError(f"Invalid collision_policy: {collision_raw}.") from exc
+        raise JobPersistenceError(f"collision_policy の値が不正です: {collision_raw}") from exc
 
     selection_rules = FileSelectionRules(
         input_directory_path=input_directory_path,
@@ -179,12 +179,12 @@ def load_job_definition_from_json_file(file_path: Path) -> JobDefinition:
     try:
         raw_text = file_path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise JobPersistenceError(f"Cannot read job file: {file_path}") from exc
+        raise JobPersistenceError(f"設定ファイルを読み込めません: {file_path}") from exc
 
     try:
         payload = json.loads(raw_text)
     except json.JSONDecodeError as exc:
-        raise JobPersistenceError("Job file is not valid JSON.") from exc
+        raise JobPersistenceError("設定ファイルは JSON として読み取れません。") from exc
 
     root = _require_dict_payload(payload)
     return job_definition_from_dict(root)

@@ -38,9 +38,11 @@ def test_write_job_summary_json_line_appends_summary(tmp_path: Path) -> None:
     write_job_summary_json_line(
         log_path,
         total_files=3,
+        excluded_by_filter_count=1,
         success_count=2,
         failure_count=1,
         skipped_count=0,
+        skipped_filtered_input_count=0,
         cancelled_count=0,
     )
 
@@ -48,3 +50,4 @@ def test_write_job_summary_json_line_appends_summary(tmp_path: Path) -> None:
     payload = json.loads(text)
     assert payload["event_type"] == "job_summary"
     assert payload["total_files"] == 3
+    assert payload["excluded_by_filter_count"] == 1

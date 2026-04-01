@@ -51,6 +51,44 @@ def test_worker_finishes_with_zero_files(qtbot, tmp_path: Path, qapplication_ins
     assert summary.total_files == 0
 
 
+def test_worker_finishes_with_zero_matches_when_only_appledouble_sidecars_exist(
+    qtbot,
+    tmp_path: Path,
+    qapplication_instance: QCoreApplication,
+) -> None:
+    """Real-world: ._*.HEIC must not be conversion targets; they must not count as failures."""
+    input_dir = tmp_path / "in"
+    output_dir = tmp_path / "out"
+    input_dir.mkdir()
+    output_dir.mkdir()
+    (input_dir / "._IMG_9999.HEIC").write_bytes(b"x")
+
+    job_definition = JobDefinition(
+        schema_version=JOB_SCHEMA_VERSION_CURRENT,
+        selection_rules=FileSelectionRules(
+            input_directory_path=input_dir,
+            included_file_extensions_lower_case=frozenset({".heic"}),
+            include_subdirectories_recursively=False,
+        ),
+        output_format=ImageOutputFormat.PNG,
+        resize_options=ResizeOptions(max_edge_pixels=None),
+        output_rules=OutputRules(
+            output_directory_path=output_dir,
+            collision_policy=CollisionPolicy.OVERWRITE_EXISTING_OUTPUT,
+        ),
+    )
+
+    worker = ImageConversionWorker(job_definition=job_definition, log_file_path=None)
+
+    with qtbot.waitSignal(worker.job_finished, timeout=10_000) as blocker:
+        worker.run_conversion_job()
+
+    summary = blocker.args[0]
+    assert summary.total_files == 0
+    assert summary.excluded_by_filter_count == 1
+    assert summary.failure_count == 0
+
+
 def test_thread_controller_runs_job_without_blocking_ui(qtbot, tmp_path: Path, qapplication_instance: QCoreApplication) -> None:
     input_dir = tmp_path / "in"
     output_dir = tmp_path / "out"

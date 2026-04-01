@@ -50,7 +50,7 @@ def test_malformed_json_rejected(tmp_path: Path) -> None:
     file_path = tmp_path / "bad.json"
     file_path.write_text("{not json", encoding="utf-8")
 
-    with pytest.raises(JobPersistenceError, match="not valid JSON"):
+    with pytest.raises(JobPersistenceError, match="読み取れません"):
         load_job_definition_from_json_file(file_path)
 
 
@@ -58,7 +58,7 @@ def test_unknown_schema_version_rejected(tmp_path: Path) -> None:
     file_path = tmp_path / "future.json"
     file_path.write_text('{"schema_version": 999999}', encoding="utf-8")
 
-    with pytest.raises(JobPersistenceError, match="Unsupported schema_version"):
+    with pytest.raises(JobPersistenceError, match="999999"):
         load_job_definition_from_json_file(file_path)
 
 

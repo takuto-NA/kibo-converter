@@ -9,8 +9,8 @@ def test_job_run_panel_starts_with_clear_ready_state(qtbot) -> None:
     widget = JobRunPanelWidget()
     qtbot.addWidget(widget)
 
-    assert "Ready" in widget.status_text()
-    assert "Run" in widget.helper_text()
+    assert "準備完了" in widget.status_text()
+    assert "変換を実行" in widget.helper_text()
 
 
 def test_job_run_panel_running_state_enables_cancel_button(qtbot) -> None:

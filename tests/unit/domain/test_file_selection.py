@@ -16,7 +16,7 @@ def test_file_selection_requires_at_least_one_extension() -> None:
         include_subdirectories_recursively=True,
     )
 
-    with pytest.raises(ValueError, match="At least one file extension"):
+    with pytest.raises(ValueError, match="拡張子"):
         selection_rules.validate()
 
 

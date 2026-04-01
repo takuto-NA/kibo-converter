@@ -43,9 +43,11 @@ def write_job_summary_json_line(
     log_file_path: Path,
     *,
     total_files: int,
+    excluded_by_filter_count: int,
     success_count: int,
     failure_count: int,
     skipped_count: int,
+    skipped_filtered_input_count: int,
     cancelled_count: int,
 ) -> None:
     """Append a summary line for the whole job run."""
@@ -53,9 +55,11 @@ def write_job_summary_json_line(
     payload = {
         "event_type": "job_summary",
         "total_files": total_files,
+        "excluded_by_filter_count": excluded_by_filter_count,
         "success_count": success_count,
         "failure_count": failure_count,
         "skipped_count": skipped_count,
+        "skipped_filtered_input_count": skipped_filtered_input_count,
         "cancelled_count": cancelled_count,
     }
     with log_file_path.open("a", encoding="utf-8") as handle:

@@ -32,28 +32,33 @@ class JobFormWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._guidance_label = QLabel(
-            "Choose the source folder that contains HEIC or other images, decide where converted files "
-            "should go, then pick how duplicates should be handled."
+            "次の順で選んでください（HEIC などの画像を想定）。"
+            "（1）変換元のフォルダと対象の拡張子 →（2）保存先 →（3）形式やリサイズ →"
+            "（4）同じ名前のファイルが既にあるときの扱い。"
         )
         self._guidance_label.setWordWrap(True)
 
         self._input_folder_line_edit = QLineEdit()
-        self._input_folder_line_edit.setPlaceholderText("Select the folder that contains HEIC or other image files")
-        self._input_folder_browse_button = QPushButton("Browse…")
+        self._input_folder_line_edit.setPlaceholderText("HEIC などの画像が入っているフォルダを選びます")
+        self._input_folder_browse_button = QPushButton("参照…")
         self._output_folder_line_edit = QLineEdit()
-        self._output_folder_line_edit.setPlaceholderText("Select the folder where converted images will be saved")
-        self._output_folder_browse_button = QPushButton("Browse…")
+        self._output_folder_line_edit.setPlaceholderText("変換後の画像を保存するフォルダを選びます")
+        self._output_folder_browse_button = QPushButton("参照…")
 
         self._extensions_line_edit = QLineEdit(".heic,.heif,.png,.jpg,.jpeg,.webp")
-        self._extensions_line_edit.setPlaceholderText("Example: .heic,.png,.jpg")
-        self._include_subfolders_checkbox = QCheckBox("Include subfolders")
+        self._extensions_line_edit.setPlaceholderText("例: .heic,.png,.jpg")
+        self._extensions_hint_label = QLabel(
+            "通常はこのままで問題ありません。対象にしたい拡張子だけが変換されます。"
+        )
+        self._extensions_hint_label.setWordWrap(True)
+        self._include_subfolders_checkbox = QCheckBox("下のフォルダもまとめて対象にする")
         self._include_subfolders_checkbox.setChecked(True)
 
         self._output_format_combo = QComboBox()
         for output_format in ImageOutputFormat:
             self._output_format_combo.addItem(output_format.value.upper(), userData=output_format)
 
-        self._resize_enabled_checkbox = QCheckBox("Resize (max edge)")
+        self._resize_enabled_checkbox = QCheckBox("長い辺を指定して縮小する")
         self._resize_enabled_checkbox.setChecked(False)
         self._max_edge_spin = QSpinBox()
         self._max_edge_spin.setRange(1, 20000)
@@ -63,11 +68,11 @@ class JobFormWidget(QWidget):
 
         self._collision_policy_combo = QComboBox()
         self._collision_policy_combo.addItem(
-            "Replace the existing converted file",
+            "同名の出力があるときは上書きする",
             userData=CollisionPolicy.OVERWRITE_EXISTING_OUTPUT,
         )
         self._collision_policy_combo.addItem(
-            "Keep both and create a unique name when needed",
+            "同名の出力があるときは別名で保存する",
             userData=CollisionPolicy.KEEP_BOTH_OUTPUTS,
         )
 
@@ -83,25 +88,40 @@ class JobFormWidget(QWidget):
         output_row.addWidget(self._output_folder_line_edit)
         output_row.addWidget(self._output_folder_browse_button)
 
-        layout = QVBoxLayout()
-        group = QGroupBox("Job settings")
-        form = QFormLayout()
-        layout.addWidget(self._guidance_label)
-        form.addRow(QLabel("Input folder"), input_row)
-        form.addRow(QLabel("Output folder"), output_row)
-        form.addRow(QLabel("Extensions"), self._extensions_line_edit)
-        form.addRow(self._include_subfolders_checkbox)
-        form.addRow(QLabel("Output format"), self._output_format_combo)
-
         resize_row = QHBoxLayout()
         resize_row.addWidget(self._resize_enabled_checkbox)
         resize_row.addWidget(self._max_edge_spin)
-        form.addRow(QLabel("Resize"), resize_row)
 
-        form.addRow(QLabel("Collision policy"), self._collision_policy_combo)
+        layout = QVBoxLayout()
+        group = QGroupBox("変換設定")
+        form = QFormLayout()
+        layout.addWidget(self._guidance_label)
+        form.addRow(QLabel("1. 入力元フォルダ"), input_row)
+        form.addRow(QLabel("対象にする拡張子"), self._extensions_line_edit)
+        form.addRow("", self._extensions_hint_label)
+        form.addRow(self._include_subfolders_checkbox)
+        form.addRow(QLabel("2. 出力先フォルダ"), output_row)
+        form.addRow(QLabel("3. 出力形式"), self._output_format_combo)
+        form.addRow(QLabel("リサイズ"), resize_row)
+        form.addRow(QLabel("4. 同じ名前の出力ファイルがあるとき"), self._collision_policy_combo)
         group.setLayout(form)
         layout.addWidget(group)
         self.setLayout(layout)
+
+    def set_interaction_enabled(self, enabled: bool) -> None:
+        """Enable or disable editing while a job runs or when the UI should be read-only."""
+        self._guidance_label.setEnabled(enabled)
+        self._input_folder_line_edit.setEnabled(enabled)
+        self._input_folder_browse_button.setEnabled(enabled)
+        self._output_folder_line_edit.setEnabled(enabled)
+        self._output_folder_browse_button.setEnabled(enabled)
+        self._extensions_line_edit.setEnabled(enabled)
+        self._extensions_hint_label.setEnabled(enabled)
+        self._include_subfolders_checkbox.setEnabled(enabled)
+        self._output_format_combo.setEnabled(enabled)
+        self._resize_enabled_checkbox.setEnabled(enabled)
+        self._max_edge_spin.setEnabled(enabled and self._resize_enabled_checkbox.isChecked())
+        self._collision_policy_combo.setEnabled(enabled)
 
     def form_guidance_text(self) -> str:
         """Return the short explanatory text shown above the form."""
@@ -134,9 +154,9 @@ class JobFormWidget(QWidget):
         output_format = self._output_format_combo.currentData()
         collision_policy = self._collision_policy_combo.currentData()
         if not isinstance(output_format, ImageOutputFormat):
-            raise ValueError("Internal error: output format combo returned invalid data.")
+            raise ValueError("内部エラー: 出力形式の選択が不正です。")
         if not isinstance(collision_policy, CollisionPolicy):
-            raise ValueError("Internal error: collision policy combo returned invalid data.")
+            raise ValueError("内部エラー: 重複時の扱いの選択が不正です。")
 
         return JobFormState(
             input_directory_path_text=self._input_folder_line_edit.text().strip(),

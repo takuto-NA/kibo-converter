@@ -77,9 +77,11 @@ class ImageConversionWorker(QObject):
             self.preflight_failed.emit(str(exc))
             return
 
-        source_files = filesystem_scanner.list_matching_files(self._job_definition.selection_rules)
+        source_files, excluded_count = filesystem_scanner.list_matching_files_with_exclusion_count(
+            self._job_definition.selection_rules
+        )
         total_files = len(source_files)
-        summary = JobRunSummary(total_files=total_files)
+        summary = JobRunSummary(total_files=total_files, excluded_by_filter_count=excluded_count)
 
         initial_snapshot = ProgressSnapshot(completed_file_count=0, total_file_count=total_files)
         self.progress_updated.emit(initial_snapshot)
@@ -89,9 +91,11 @@ class ImageConversionWorker(QObject):
                 write_job_summary_json_line(
                     self._log_file_path,
                     total_files=summary.total_files,
+                    excluded_by_filter_count=summary.excluded_by_filter_count,
                     success_count=summary.success_count,
                     failure_count=summary.failure_count,
                     skipped_count=summary.skipped_count,
+                    skipped_filtered_input_count=summary.skipped_filtered_input_count,
                     cancelled_count=summary.cancelled_count,
                 )
             self.job_finished.emit(summary)
@@ -115,6 +119,8 @@ class ImageConversionWorker(QObject):
                 summary.failure_count += 1
             elif record.status == FileResultStatus.SKIPPED_DUPLICATE_OUTPUT:
                 summary.skipped_count += 1
+            elif record.status == FileResultStatus.SKIPPED_FILTERED_INPUT:
+                summary.skipped_filtered_input_count += 1
             elif record.status == FileResultStatus.SKIPPED_CANCELLED:
                 summary.cancelled_count += 1
 
@@ -130,9 +136,11 @@ class ImageConversionWorker(QObject):
             write_job_summary_json_line(
                 self._log_file_path,
                 total_files=summary.total_files,
+                excluded_by_filter_count=summary.excluded_by_filter_count,
                 success_count=summary.success_count,
                 failure_count=summary.failure_count,
                 skipped_count=summary.skipped_count,
+                skipped_filtered_input_count=summary.skipped_filtered_input_count,
                 cancelled_count=summary.cancelled_count,
             )
 

@@ -1,19 +1,25 @@
-# Known limitations
+# 既知の制限事項
 
-## MVP scope
+## MVP の範囲
 
-- This release focuses on raster image conversion in a single-threaded per-job pipeline.
-- Video, audio, and document conversion are out of scope.
+- このリリースは、1 ジョブあたり単一スレッドのラスタ画像変換に焦点を当てています。
+- 動画・音声・文書の変換は対象外です。
 
-## HEIC support
+## HEIC 対応
 
-- HEIC decoding depends on `pillow-heif` and the underlying `libheif` availability on the host OS.
-- Some devices or OS builds may require additional runtime libraries beyond Python packages.
+- HEIC のデコードは `pillow-heif` と、ホスト OS の `libheif` などの利用可能性に依存します。
+- 機種や OS によっては、Python パッケージ以外のランタイムが必要になることがあります。
 
-## Performance
+## 入力スキャンの除外ルール
 
-- Large images may take noticeable time per file; the UI should remain responsive, but total runtime depends on disk speed and CPU.
+- 拡張子が一致しても、macOS の `._*` 付随ファイルのように **OS 由来のファイル名** は既定で変換対象から外します。
+- これは「変換失敗」ではなく、**スキャン時の除外**として集計されます（ログの `job_summary` に `excluded_by_filter_count` が記録されます）。
+- 完全なカスタム除外ルールは今後の拡張候補です。
 
-## Color management
+## パフォーマンス
 
-- This MVP does not implement a full ICC color-managed pipeline beyond Pillow defaults.
+- 大きな画像は 1 枚あたり時間がかかることがあります。UI は応答性を保つ設計ですが、合計時間はディスクや CPU に左右されます。
+
+## カラーマネジメント
+
+- この MVP は、Pillow の既定を超える完全な ICC プロファイル連携のパイプラインは実装していません。
