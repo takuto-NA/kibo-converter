@@ -1,27 +1,36 @@
-# Responsibility: Main application window wiring form, run panel, file dialogs, and background jobs.
+"""Responsibility: Compose the launcher-style shell UI, preview panels, and execution flow."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QSplitter,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from kibo_converter.application.job_executor import ImageConversionWorker, ImageJobThreadController
+from kibo_converter.application.job_preview import build_job_preview_snapshot
 from kibo_converter.application.job_persistence import JobPersistenceError, load_job_definition_from_json_file, save_job_definition_to_json_file
 from kibo_converter.application.progress_reporter import ProgressSnapshot
 from kibo_converter.domain.job_definition import JobDefinition
 from kibo_converter.domain.job_result import FileResultRecord, JobRunSummary
+from kibo_converter.domain.job_types import JobType
+from kibo_converter.domain.job_ui_models import JobPreviewSnapshot
 from kibo_converter.domain.output_rules import CollisionPolicy
+from kibo_converter.ui.candidate_review_panel import CandidateReviewPanelWidget
 from kibo_converter.ui.job_form import JobFormWidget
+from kibo_converter.ui.job_catalog_panel import JobCatalogPanelWidget
 from kibo_converter.ui.job_run_panel import JobRunPanelWidget
+from kibo_converter.ui.output_preview_panel import OutputPreviewPanelWidget
 from kibo_converter.ui.view_models import (
     build_job_definition_from_form_state,
     format_file_result_line_for_user,
@@ -37,8 +46,13 @@ class MainWindow(QWidget):
         self.setWindowTitle("Kibo Converter")
         self._active_thread_controller: ImageJobThreadController | None = None
         self._active_worker: ImageConversionWorker | None = None
+        self._latest_preview_snapshot = JobPreviewSnapshot(candidate_items=[], output_preview_items=[])
+        self._manually_excluded_source_paths: frozenset[Path] = frozenset()
 
+        self._job_catalog_panel = JobCatalogPanelWidget()
         self._job_form = JobFormWidget()
+        self._candidate_review_panel = CandidateReviewPanelWidget()
+        self._output_preview_panel = OutputPreviewPanelWidget()
         self._job_run_panel = JobRunPanelWidget()
 
         self._run_button = QPushButton("変換を実行")
@@ -49,8 +63,11 @@ class MainWindow(QWidget):
         self._run_button.clicked.connect(self._handle_run_clicked)
         self._save_job_button.clicked.connect(self._handle_save_job_clicked)
         self._load_job_button.clicked.connect(self._handle_load_job_clicked)
+        self._job_catalog_panel.job_selected.connect(self._handle_job_selected)
         self._job_form.input_folder_changed.connect(self._browse_input_folder)
         self._job_form.output_folder_changed.connect(self._browse_output_folder)
+        self._job_form.form_state_changed.connect(self._refresh_preview_panels)
+        self._candidate_review_panel.selection_changed.connect(self._handle_candidate_selection_changed)
         self._job_run_panel.cancel_requested.connect(self._handle_cancel_requested)
 
         title = QLabel("Kibo Converter")
@@ -58,8 +75,14 @@ class MainWindow(QWidget):
         title_font.setPointSize(title_font.pointSize() + 2)
         title_font.setBold(True)
         title.setFont(title_font)
-        subtitle = QLabel("HEIC などの画像を、フォルダ単位で一括変換します（画面は固まりません）。")
+        subtitle = QLabel(
+            "左のジョブ一覧から今回やりたい変換を選び、"
+            "右側で共通設定・ジョブ固有設定・候補一覧・出力プレビューを確認します。"
+        )
         subtitle.setWordWrap(True)
+        self._selected_job_summary_label = QLabel()
+        self._selected_job_summary_label.setWordWrap(True)
+        self._update_selected_job_summary()
 
         buttons_row = QHBoxLayout()
         buttons_row.addWidget(self._run_button)
@@ -67,13 +90,47 @@ class MainWindow(QWidget):
         buttons_row.addWidget(self._load_job_button)
         buttons_row.addStretch(1)
 
-        layout = QVBoxLayout()
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
-        layout.addWidget(self._job_form)
-        layout.addLayout(buttons_row)
-        layout.addWidget(self._job_run_panel)
+        preview_tabs = QTabWidget()
+        preview_tabs.addTab(self._candidate_review_panel, "候補一覧")
+        preview_tabs.addTab(self._output_preview_panel, "出力プレビュー")
+        preview_tabs.addTab(self._job_run_panel, "実行ログ")
+
+        workspace_widget = QWidget()
+        workspace_layout = QVBoxLayout()
+        workspace_layout.addWidget(title)
+        workspace_layout.addWidget(subtitle)
+        workspace_layout.addWidget(self._selected_job_summary_label)
+        workspace_layout.addWidget(self._job_form)
+        workspace_layout.addLayout(buttons_row)
+        workspace_layout.addWidget(preview_tabs)
+        workspace_widget.setLayout(workspace_layout)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(self._job_catalog_panel)
+        splitter.addWidget(workspace_widget)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+
+        layout = QHBoxLayout()
+        layout.addWidget(splitter)
         self.setLayout(layout)
+        self._refresh_preview_panels()
+
+    def current_job_type(self) -> JobType:
+        """Expose the selected job type for tests and integrations."""
+        return self._job_catalog_panel.current_job_type()
+
+    def job_catalog_titles(self) -> list[str]:
+        """Expose visible catalog titles for tests."""
+        return self._job_catalog_panel.job_titles()
+
+    def candidate_review_row_count(self) -> int:
+        """Expose preview candidate row count for tests."""
+        return self._candidate_review_panel.row_count()
+
+    def output_preview_row_count(self) -> int:
+        """Expose preview output row count for tests."""
+        return self._output_preview_panel.row_count()
 
     def _browse_input_folder(self) -> None:
         """Open a folder dialog and write the selection into the input field."""
@@ -146,6 +203,10 @@ class MainWindow(QWidget):
             QMessageBox.warning(self, "設定を確認してください", str(exc))
             return
 
+        if self.current_job_type() != JobType.IMAGE_CONVERSION:
+            QMessageBox.information(self, "未対応", "現在実行できるのは画像変換ジョブのみです。")
+            return
+
         if job_definition.output_rules.collision_policy == CollisionPolicy.OVERWRITE_EXISTING_OUTPUT:
             if not self._confirm_overwrite_policy_with_nonempty_output_folder(
                 output_directory_path=job_definition.output_rules.output_directory_path,
@@ -153,16 +214,33 @@ class MainWindow(QWidget):
                 return
 
         log_file_path = self._default_log_file_path(job_definition)
-        self._start_job_thread(job_definition=job_definition, log_file_path=log_file_path)
+        self._start_job_thread(
+            job_definition=job_definition,
+            log_file_path=log_file_path,
+            source_paths_override=self._selected_source_paths_from_preview(),
+            excluded_by_filter_count_override=self._latest_preview_snapshot.excluded_by_filter_count,
+        )
 
     def _default_log_file_path(self, job_definition: JobDefinition) -> Path:
         """Pick a default JSONL log path next to the output folder."""
         return job_definition.output_rules.output_directory_path / "kibo_converter_run.jsonl"
 
-    def _start_job_thread(self, *, job_definition: JobDefinition, log_file_path: Path) -> None:
+    def _start_job_thread(
+        self,
+        *,
+        job_definition: JobDefinition,
+        log_file_path: Path,
+        source_paths_override: list[Path] | None,
+        excluded_by_filter_count_override: int,
+    ) -> None:
         """Wire worker signals and start the background thread."""
         controller = ImageJobThreadController()
-        worker = controller.start_job(job_definition=job_definition, log_file_path=log_file_path)
+        worker = controller.start_job(
+            job_definition=job_definition,
+            log_file_path=log_file_path,
+            source_paths_override=source_paths_override,
+            excluded_by_filter_count_override=excluded_by_filter_count_override,
+        )
 
         self._active_thread_controller = controller
         self._active_worker = worker
@@ -222,6 +300,66 @@ class MainWindow(QWidget):
         self._load_job_button.setEnabled(True)
         self._job_form.set_interaction_enabled(True)
         self._job_run_panel.set_running_state(is_running=False)
+        self._refresh_preview_panels()
+
+    def _handle_job_selected(self, job_type: object) -> None:
+        """Refresh visible descriptions when the selected job changes."""
+        if not isinstance(job_type, JobType):
+            return
+        self._update_selected_job_summary()
+        self._refresh_preview_panels()
+
+    def _update_selected_job_summary(self) -> None:
+        """Update the sentence describing the selected job and current capability scope."""
+        if self.current_job_type() == JobType.IMAGE_CONVERSION:
+            self._selected_job_summary_label.setText(
+                "選択中のジョブ: 画像変換。入力形式は .heic / .heif / .png / .jpg / .jpeg / .webp、"
+                "出力形式は PNG / JPEG / WEBP です。"
+            )
+            return
+        self._selected_job_summary_label.setText("選択中のジョブは近日対応です。")
+
+    def _handle_candidate_selection_changed(self, manually_excluded_source_paths: object) -> None:
+        """Refresh only the output preview when the user excludes individual candidates."""
+        if not isinstance(manually_excluded_source_paths, frozenset):
+            return
+        if manually_excluded_source_paths == self._manually_excluded_source_paths:
+            return
+        self._manually_excluded_source_paths = manually_excluded_source_paths
+        self._refresh_preview_panels()
+
+    def _refresh_preview_panels(self) -> None:
+        """Rebuild candidate review and output preview from the current form state."""
+        try:
+            form_state = self._job_form.read_form_state()
+            job_definition = build_job_definition_from_form_state(form_state)
+        except ValueError:
+            self._latest_preview_snapshot = JobPreviewSnapshot(candidate_items=[], output_preview_items=[])
+            self._candidate_review_panel.set_candidate_items([])
+            self._output_preview_panel.set_output_preview_items([])
+            return
+
+        if self.current_job_type() != JobType.IMAGE_CONVERSION:
+            self._latest_preview_snapshot = JobPreviewSnapshot(candidate_items=[], output_preview_items=[])
+            self._candidate_review_panel.set_candidate_items([])
+            self._output_preview_panel.set_output_preview_items([])
+            return
+
+        snapshot = build_job_preview_snapshot(
+            job_definition,
+            manually_excluded_source_paths=self._manually_excluded_source_paths,
+        )
+        self._latest_preview_snapshot = snapshot
+        self._candidate_review_panel.set_candidate_items(snapshot.candidate_items)
+        self._output_preview_panel.set_output_preview_items(snapshot.output_preview_items)
+
+    def _selected_source_paths_from_preview(self) -> list[Path]:
+        """Return user-selected included source paths for execution."""
+        return [
+            candidate_item.source_path
+            for candidate_item in self._latest_preview_snapshot.candidate_items
+            if candidate_item.is_selected
+        ]
 
     def _handle_cancel_requested(self) -> None:
         """Forward cancellation to the active worker."""

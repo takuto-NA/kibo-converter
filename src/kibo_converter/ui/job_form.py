@@ -1,6 +1,8 @@
-# Responsibility: Widgets for editing job parameters before execution.
+"""Responsibility: Compose shared job settings and image-specific settings for the current job."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
@@ -18,6 +20,8 @@ from PyQt6.QtWidgets import (
 )
 
 from kibo_converter.domain.job_definition import JobDefinition
+from kibo_converter.domain.job_types import JobType
+from kibo_converter.domain.job_ui_models import SharedJobSettings
 from kibo_converter.domain.output_rules import CollisionPolicy
 from kibo_converter.domain.processing_steps import ImageOutputFormat
 from kibo_converter.ui.view_models import JobFormState
@@ -28,21 +32,22 @@ class JobFormWidget(QWidget):
 
     input_folder_changed = pyqtSignal()
     output_folder_changed = pyqtSignal()
+    form_state_changed = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._guidance_label = QLabel(
-            "次の順で選んでください（HEIC などの画像を想定）。"
-            "（1）変換元のフォルダと対象の拡張子 →（2）保存先 →（3）形式やリサイズ →"
-            "（4）同じ名前のファイルが既にあるときの扱い。"
+            "現在のジョブは画像変換です。"
+            "（1）共通設定で入力元と出力先を選ぶ →"
+            "（2）画像変換設定で拡張子や出力形式を決める。"
         )
         self._guidance_label.setWordWrap(True)
 
         self._input_folder_line_edit = QLineEdit()
-        self._input_folder_line_edit.setPlaceholderText("HEIC などの画像が入っているフォルダを選びます")
+        self._input_folder_line_edit.setPlaceholderText("今回の入力ファイルが入っているフォルダを選びます")
         self._input_folder_browse_button = QPushButton("参照…")
         self._output_folder_line_edit = QLineEdit()
-        self._output_folder_line_edit.setPlaceholderText("変換後の画像を保存するフォルダを選びます")
+        self._output_folder_line_edit.setPlaceholderText("変換後のファイルを保存するフォルダを選びます")
         self._output_folder_browse_button = QPushButton("参照…")
 
         self._extensions_line_edit = QLineEdit(".heic,.heif,.png,.jpg,.jpeg,.webp")
@@ -79,6 +84,7 @@ class JobFormWidget(QWidget):
         self._input_folder_browse_button.clicked.connect(self._emit_input_folder_signal)
         self._output_folder_browse_button.clicked.connect(self._emit_output_folder_signal)
         self._resize_enabled_checkbox.toggled.connect(self._max_edge_spin.setEnabled)
+        self._wire_form_state_changed_signal()
 
         input_row = QHBoxLayout()
         input_row.addWidget(self._input_folder_line_edit)
@@ -93,19 +99,29 @@ class JobFormWidget(QWidget):
         resize_row.addWidget(self._max_edge_spin)
 
         layout = QVBoxLayout()
-        group = QGroupBox("変換設定")
-        form = QFormLayout()
         layout.addWidget(self._guidance_label)
-        form.addRow(QLabel("1. 入力元フォルダ"), input_row)
-        form.addRow(QLabel("対象にする拡張子"), self._extensions_line_edit)
-        form.addRow("", self._extensions_hint_label)
-        form.addRow(self._include_subfolders_checkbox)
-        form.addRow(QLabel("2. 出力先フォルダ"), output_row)
-        form.addRow(QLabel("3. 出力形式"), self._output_format_combo)
-        form.addRow(QLabel("リサイズ"), resize_row)
-        form.addRow(QLabel("4. 同じ名前の出力ファイルがあるとき"), self._collision_policy_combo)
-        group.setLayout(form)
-        layout.addWidget(group)
+
+        self._shared_settings_group = QGroupBox("共通設定")
+        shared_settings_form_layout = QFormLayout()
+        shared_settings_form_layout.addRow(QLabel("入力元フォルダ"), input_row)
+        shared_settings_form_layout.addRow(QLabel("出力先フォルダ"), output_row)
+        shared_settings_form_layout.addRow(
+            QLabel("同じ名前の出力ファイルがあるとき"),
+            self._collision_policy_combo,
+        )
+        self._shared_settings_group.setLayout(shared_settings_form_layout)
+
+        self._image_job_settings_group = QGroupBox("画像変換設定")
+        image_job_settings_form_layout = QFormLayout()
+        image_job_settings_form_layout.addRow(QLabel("対象にする拡張子"), self._extensions_line_edit)
+        image_job_settings_form_layout.addRow("", self._extensions_hint_label)
+        image_job_settings_form_layout.addRow(self._include_subfolders_checkbox)
+        image_job_settings_form_layout.addRow(QLabel("出力形式"), self._output_format_combo)
+        image_job_settings_form_layout.addRow(QLabel("リサイズ"), resize_row)
+        self._image_job_settings_group.setLayout(image_job_settings_form_layout)
+
+        layout.addWidget(self._shared_settings_group)
+        layout.addWidget(self._image_job_settings_group)
         self.setLayout(layout)
 
     def set_interaction_enabled(self, enabled: bool) -> None:
@@ -126,6 +142,21 @@ class JobFormWidget(QWidget):
     def form_guidance_text(self) -> str:
         """Return the short explanatory text shown above the form."""
         return self._guidance_label.text()
+
+    def current_job_type(self) -> JobType:
+        """Return the job type currently configured by this form."""
+        return JobType.IMAGE_CONVERSION
+
+    def _wire_form_state_changed_signal(self) -> None:
+        """Emit a single signal whenever any visible form control changes."""
+        self._input_folder_line_edit.textChanged.connect(self.form_state_changed.emit)
+        self._output_folder_line_edit.textChanged.connect(self.form_state_changed.emit)
+        self._extensions_line_edit.textChanged.connect(self.form_state_changed.emit)
+        self._include_subfolders_checkbox.toggled.connect(self.form_state_changed.emit)
+        self._output_format_combo.currentIndexChanged.connect(self.form_state_changed.emit)
+        self._resize_enabled_checkbox.toggled.connect(self.form_state_changed.emit)
+        self._max_edge_spin.valueChanged.connect(self.form_state_changed.emit)
+        self._collision_policy_combo.currentIndexChanged.connect(self.form_state_changed.emit)
 
     def _emit_input_folder_signal(self) -> None:
         self.input_folder_changed.emit()
@@ -148,6 +179,19 @@ class JobFormWidget(QWidget):
     def resize_spin_box(self) -> QSpinBox:
         """Expose resize value editor for UI tests."""
         return self._max_edge_spin
+
+    def read_shared_settings(self) -> SharedJobSettings:
+        """Return grouped shared settings for shell UI coordination."""
+        collision_policy = self._collision_policy_combo.currentData()
+        if not isinstance(collision_policy, CollisionPolicy):
+            raise ValueError("内部エラー: 重複時の扱いの選択が不正です。")
+        input_directory_path_text = self._input_folder_line_edit.text().strip()
+        output_directory_path_text = self._output_folder_line_edit.text().strip()
+        return SharedJobSettings(
+            input_directory_path=Path(input_directory_path_text),
+            output_directory_path=Path(output_directory_path_text),
+            collision_policy=collision_policy,
+        )
 
     def read_form_state(self) -> JobFormState:
         """Return a snapshot of current form values."""

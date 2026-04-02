@@ -59,10 +59,14 @@ class ImageConversionWorker(QObject):
         *,
         job_definition: JobDefinition,
         log_file_path: Path | None,
+        source_paths_override: list[Path] | None = None,
+        excluded_by_filter_count_override: int = 0,
     ) -> None:
         super().__init__()
         self._job_definition = job_definition
         self._log_file_path = log_file_path
+        self._source_paths_override = source_paths_override
+        self._excluded_by_filter_count_override = excluded_by_filter_count_override
         self._cancellation_requested = False
 
     def request_cancel(self) -> None:
@@ -77,9 +81,13 @@ class ImageConversionWorker(QObject):
             self.preflight_failed.emit(str(exc))
             return
 
-        source_files, excluded_count = filesystem_scanner.list_matching_files_with_exclusion_count(
-            self._job_definition.selection_rules
-        )
+        if self._source_paths_override is None:
+            source_files, excluded_count = filesystem_scanner.list_matching_files_with_exclusion_count(
+                self._job_definition.selection_rules
+            )
+        else:
+            source_files = list(self._source_paths_override)
+            excluded_count = self._excluded_by_filter_count_override
         total_files = len(source_files)
         summary = JobRunSummary(total_files=total_files, excluded_by_filter_count=excluded_count)
 
@@ -234,9 +242,21 @@ class ImageJobThreadController:
         self._thread = QThread()
         self._worker: ImageConversionWorker | None = None
 
-    def start_job(self, *, job_definition: JobDefinition, log_file_path: Path | None) -> ImageConversionWorker:
+    def start_job(
+        self,
+        *,
+        job_definition: JobDefinition,
+        log_file_path: Path | None,
+        source_paths_override: list[Path] | None = None,
+        excluded_by_filter_count_override: int = 0,
+    ) -> ImageConversionWorker:
         """Start worker on a background thread; returns the worker for signal wiring."""
-        self._worker = ImageConversionWorker(job_definition=job_definition, log_file_path=log_file_path)
+        self._worker = ImageConversionWorker(
+            job_definition=job_definition,
+            log_file_path=log_file_path,
+            source_paths_override=source_paths_override,
+            excluded_by_filter_count_override=excluded_by_filter_count_override,
+        )
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run_conversion_job)
         self._worker.job_finished.connect(self._thread.quit)

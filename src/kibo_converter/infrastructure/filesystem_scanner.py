@@ -14,6 +14,20 @@ def list_matching_files(selection_rules: FileSelectionRules) -> list[Path]:
     return paths
 
 
+def list_all_files_under_root(*, root: Path, include_subdirectories_recursively: bool) -> list[Path]:
+    """Return every file under root for candidate review UIs."""
+    if not root.is_dir():
+        return []
+
+    if include_subdirectories_recursively:
+        paths = [path for path in root.rglob("*") if path.is_file()]
+    else:
+        paths = [path for path in root.iterdir() if path.is_file()]
+
+    paths.sort(key=lambda path: str(path).lower())
+    return paths
+
+
 def list_matching_files_with_exclusion_count(
     selection_rules: FileSelectionRules,
 ) -> tuple[list[Path], int]:
