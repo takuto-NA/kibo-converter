@@ -89,3 +89,80 @@ def test_worker_stops_starting_new_files_after_cancellation_request(qtbot, tmp_p
     assert summary.success_count == 1
     assert summary.cancelled_count == 2
     assert summary.file_results[-1].status == FileResultStatus.SKIPPED_CANCELLED
+
+
+def test_worker_can_run_only_selected_source_paths(qtbot, tmp_path: Path) -> None:
+    input_directory_path = tmp_path / "input"
+    output_directory_path = tmp_path / "output"
+    input_directory_path.mkdir()
+    output_directory_path.mkdir()
+
+    selected_png_path = input_directory_path / "selected.png"
+    skipped_png_path = input_directory_path / "skipped.png"
+    Image.new("RGB", (16, 16), color=(30, 40, 50)).save(selected_png_path, format="PNG")
+    Image.new("RGB", (16, 16), color=(60, 70, 80)).save(skipped_png_path, format="PNG")
+
+    job_definition = _build_png_job_definition(input_directory_path, output_directory_path)
+    worker = ImageConversionWorker(
+        job_definition=job_definition,
+        log_file_path=None,
+        source_paths_override=[selected_png_path],
+    )
+
+    with qtbot.waitSignal(worker.job_finished, timeout=10_000) as blocker:
+        worker.run_conversion_job()
+
+    summary = blocker.args[0]
+    assert summary.total_files == 1
+    assert summary.success_count == 1
+    assert (output_directory_path / "selected.png").is_file()
+    assert (output_directory_path / "skipped.png").exists() is False
+
+
+def test_worker_with_empty_source_override_runs_zero_files(qtbot, tmp_path: Path) -> None:
+    input_directory_path = tmp_path / "input"
+    output_directory_path = tmp_path / "output"
+    input_directory_path.mkdir()
+    output_directory_path.mkdir()
+
+    Image.new("RGB", (16, 16), color=(30, 40, 50)).save(input_directory_path / "selected.png", format="PNG")
+
+    job_definition = _build_png_job_definition(input_directory_path, output_directory_path)
+    worker = ImageConversionWorker(
+        job_definition=job_definition,
+        log_file_path=None,
+        source_paths_override=[],
+    )
+
+    with qtbot.waitSignal(worker.job_finished, timeout=10_000) as blocker:
+        worker.run_conversion_job()
+
+    summary = blocker.args[0]
+    assert summary.total_files == 0
+    assert summary.success_count == 0
+    assert (output_directory_path / "selected.png").exists() is False
+
+
+def test_worker_override_can_keep_preview_excluded_count(qtbot, tmp_path: Path) -> None:
+    input_directory_path = tmp_path / "input"
+    output_directory_path = tmp_path / "output"
+    input_directory_path.mkdir()
+    output_directory_path.mkdir()
+
+    selected_png_path = input_directory_path / "selected.png"
+    Image.new("RGB", (16, 16), color=(30, 40, 50)).save(selected_png_path, format="PNG")
+
+    job_definition = _build_png_job_definition(input_directory_path, output_directory_path)
+    worker = ImageConversionWorker(
+        job_definition=job_definition,
+        log_file_path=None,
+        source_paths_override=[selected_png_path],
+        excluded_by_filter_count_override=2,
+    )
+
+    with qtbot.waitSignal(worker.job_finished, timeout=10_000) as blocker:
+        worker.run_conversion_job()
+
+    summary = blocker.args[0]
+    assert summary.total_files == 1
+    assert summary.excluded_by_filter_count == 2

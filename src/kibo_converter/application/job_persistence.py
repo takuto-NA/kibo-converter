@@ -9,6 +9,7 @@ from typing import Any
 from kibo_converter.constants import JOB_SCHEMA_VERSION_CURRENT
 from kibo_converter.domain.file_selection import FileSelectionRules
 from kibo_converter.domain.job_definition import JobDefinition
+from kibo_converter.domain.job_types import JobType
 from kibo_converter.domain.output_rules import CollisionPolicy, OutputRules
 from kibo_converter.domain.processing_steps import ImageOutputFormat, ResizeOptions
 
@@ -42,6 +43,11 @@ def _require_non_empty_path_text(key: str, value: Any) -> str:
     return text
 
 
+def _path_text_for_json(path: Path) -> str:
+    """Serialize paths in stable slash-separated form for human-readable JSON."""
+    return path.as_posix()
+
+
 def _require_bool(key: str, value: Any) -> bool:
     if not isinstance(value, bool):
         raise JobPersistenceError(f"Invalid type for '{key}': expected boolean.")
@@ -68,8 +74,26 @@ def job_definition_to_dict(job_definition: JobDefinition) -> dict[str, Any]:
     """Convert a domain job to a JSON-serializable dict."""
     return {
         "schema_version": job_definition.schema_version,
+        "job_type": job_definition.job_type.value,
+        "shared_settings": {
+            "input_directory_path": _path_text_for_json(job_definition.shared_settings.input_directory_path),
+            "output_directory_path": _path_text_for_json(job_definition.shared_settings.output_directory_path),
+            "collision_policy": job_definition.shared_settings.collision_policy.value,
+        },
+        "image_conversion_settings": {
+            "included_file_extensions": sorted(
+                job_definition.image_conversion_settings.included_file_extensions_lower_case
+            ),
+            "include_subdirectories_recursively": (
+                job_definition.image_conversion_settings.include_subdirectories_recursively
+            ),
+            "output_format": job_definition.image_conversion_settings.output_format.value,
+            "resize_options": {
+                "max_edge_pixels": job_definition.image_conversion_settings.resize_options.max_edge_pixels,
+            },
+        },
         "selection_rules": {
-            "input_directory_path": str(job_definition.selection_rules.input_directory_path),
+            "input_directory_path": _path_text_for_json(job_definition.selection_rules.input_directory_path),
             "included_file_extensions": sorted(
                 job_definition.selection_rules.included_file_extensions_lower_case
             ),
@@ -82,7 +106,7 @@ def job_definition_to_dict(job_definition: JobDefinition) -> dict[str, Any]:
             "max_edge_pixels": job_definition.resize_options.max_edge_pixels,
         },
         "output_rules": {
-            "output_directory_path": str(job_definition.output_rules.output_directory_path),
+            "output_directory_path": _path_text_for_json(job_definition.output_rules.output_directory_path),
             "collision_policy": job_definition.output_rules.collision_policy.value,
         },
     }
@@ -97,6 +121,90 @@ def job_definition_from_dict(payload: dict[str, Any]) -> JobDefinition:
             f"対応しているのは {JOB_SCHEMA_VERSION_CURRENT} のみです。"
         )
 
+    job_type_raw = payload.get("job_type", JobType.IMAGE_CONVERSION.value)
+    job_type_text = _require_str("job_type", job_type_raw)
+    try:
+        job_type = JobType(job_type_text)
+    except ValueError as exc:
+        raise JobPersistenceError(f"job_type の値が不正です: {job_type_text}") from exc
+
+    if "shared_settings" in payload and "image_conversion_settings" in payload:
+        return _job_definition_from_grouped_payload(
+            payload=payload,
+            schema_version=schema_version,
+            job_type=job_type,
+        )
+
+    return _job_definition_from_legacy_payload(
+        payload=payload,
+        schema_version=schema_version,
+        job_type=job_type,
+    )
+
+
+def _job_definition_from_grouped_payload(
+    *,
+    payload: dict[str, Any],
+    schema_version: int,
+    job_type: JobType,
+) -> JobDefinition:
+    shared_payload = payload.get("shared_settings")
+    if not isinstance(shared_payload, dict):
+        raise JobPersistenceError("shared_settings が無いか、形式が正しくありません。")
+
+    image_settings_payload = payload.get("image_conversion_settings")
+    if not isinstance(image_settings_payload, dict):
+        raise JobPersistenceError("image_conversion_settings が無いか、形式が正しくありません。")
+
+    input_directory_path = Path(
+        _require_non_empty_path_text("input_directory_path", shared_payload.get("input_directory_path"))
+    )
+    output_directory_path = Path(
+        _require_non_empty_path_text("output_directory_path", shared_payload.get("output_directory_path"))
+    )
+    collision_raw = _require_str("collision_policy", shared_payload.get("collision_policy"))
+    try:
+        collision_policy = CollisionPolicy(collision_raw)
+    except ValueError as exc:
+        raise JobPersistenceError(f"collision_policy の値が不正です: {collision_raw}") from exc
+
+    extensions = _parse_extensions_list(image_settings_payload.get("included_file_extensions"))
+    recursive = _require_bool(
+        "include_subdirectories_recursively",
+        image_settings_payload.get("include_subdirectories_recursively"),
+    )
+
+    output_format_raw = _require_str("output_format", image_settings_payload.get("output_format"))
+    try:
+        output_format = ImageOutputFormat(output_format_raw)
+    except ValueError as exc:
+        raise JobPersistenceError(f"output_format の値が不正です: {output_format_raw}") from exc
+
+    resize_payload = image_settings_payload.get("resize_options")
+    if not isinstance(resize_payload, dict):
+        raise JobPersistenceError("resize_options が無いか、形式が正しくありません。")
+
+    max_edge_pixels = _parse_optional_max_edge_pixels(resize_payload.get("max_edge_pixels"))
+
+    return _build_validated_job_definition(
+        schema_version=schema_version,
+        job_type=job_type,
+        input_directory_path=input_directory_path,
+        extensions=extensions,
+        recursive=recursive,
+        output_format=output_format,
+        max_edge_pixels=max_edge_pixels,
+        output_directory_path=output_directory_path,
+        collision_policy=collision_policy,
+    )
+
+
+def _job_definition_from_legacy_payload(
+    *,
+    payload: dict[str, Any],
+    schema_version: int,
+    job_type: JobType,
+) -> JobDefinition:
     selection_payload = payload.get("selection_rules")
     if not isinstance(selection_payload, dict):
         raise JobPersistenceError("selection_rules が無いか、形式が正しくありません。")
@@ -120,12 +228,7 @@ def job_definition_from_dict(payload: dict[str, Any]) -> JobDefinition:
     if not isinstance(resize_payload, dict):
         raise JobPersistenceError("resize_options が無いか、形式が正しくありません。")
 
-    max_edge_value = resize_payload.get("max_edge_pixels")
-    max_edge_pixels: int | None
-    if max_edge_value is None:
-        max_edge_pixels = None
-    else:
-        max_edge_pixels = _require_int("max_edge_pixels", max_edge_value)
+    max_edge_pixels = _parse_optional_max_edge_pixels(resize_payload.get("max_edge_pixels"))
 
     output_payload = payload.get("output_rules")
     if not isinstance(output_payload, dict):
@@ -140,6 +243,37 @@ def job_definition_from_dict(payload: dict[str, Any]) -> JobDefinition:
     except ValueError as exc:
         raise JobPersistenceError(f"collision_policy の値が不正です: {collision_raw}") from exc
 
+    return _build_validated_job_definition(
+        schema_version=schema_version,
+        job_type=job_type,
+        input_directory_path=input_directory_path,
+        extensions=extensions,
+        recursive=recursive,
+        output_format=output_format,
+        max_edge_pixels=max_edge_pixels,
+        output_directory_path=output_directory_path,
+        collision_policy=collision_policy,
+    )
+
+
+def _parse_optional_max_edge_pixels(max_edge_value: Any) -> int | None:
+    if max_edge_value is None:
+        return None
+    return _require_int("max_edge_pixels", max_edge_value)
+
+
+def _build_validated_job_definition(
+    *,
+    schema_version: int,
+    job_type: JobType,
+    input_directory_path: Path,
+    extensions: frozenset[str],
+    recursive: bool,
+    output_format: ImageOutputFormat,
+    max_edge_pixels: int | None,
+    output_directory_path: Path,
+    collision_policy: CollisionPolicy,
+) -> JobDefinition:
     selection_rules = FileSelectionRules(
         input_directory_path=input_directory_path,
         included_file_extensions_lower_case=extensions,
@@ -157,6 +291,7 @@ def job_definition_from_dict(payload: dict[str, Any]) -> JobDefinition:
         output_format=output_format,
         resize_options=resize_options,
         output_rules=output_rules,
+        job_type=job_type,
     )
     try:
         job_definition.validate()
